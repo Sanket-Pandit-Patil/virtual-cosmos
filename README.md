@@ -4,11 +4,15 @@ A 2D multiplayer “cosmos” where travelers appear on a shared plane, move in 
 
 ## Behavior (V1)
 
-- **Avatars:** Six built-in SVG presets under `/avatars/preset-1.svg` … `preset-6.svg`, or an optional **same-origin** full image URL (https in production; http allowed on localhost). The server re-validates; set `AVATAR_ALLOWED_HOSTS` if images live on another domain. Pixi draws a circular **masked** image with **initial + colored circle fallback** if the URL fails.
-- **Movement:** WASD or arrow keys; the client sends absolute `(x, y)` on a fixed tick; the server clamps to the world and caps per-tick travel distance.
+- **Avatars:** One **procedural** icon for everyone (blue face, light silhouette, thin dark rim). **You** get a **cyan** outer trim on the disk; **other travelers** use a **neutral slate** trim so you can tell yourself apart at a glance.
+- **Movement:** WASD or arrow keys, or **click-to-move** on the canvas. The client sends absolute `(x, y)` on a fixed tick; the server clamps to the world and caps per-tick travel distance. Keyboard is ignored while typing in chat inputs.
 - **Proximity:** Each player’s nearest neighbor within `PROXIMITY_RADIUS` is computed on the server. A **link** exists only when both players are each other’s nearest in-range neighbor (stable pairwise symmetry).
-- **Chat:** When linked, both sockets join the same Socket.IO room; the chat panel opens. Moving apart or a better mutual nearest match tears the room down and hides chat.
-- **Canvas UX:** Avatars are **blue (you)** / **green (others)** circles with a **center initial**, **full name above**, **orange outline** on the linked peer, your **proximity radius** ring, connector **line**, and smoothed motion for **other** players (you stay server-snapped).
+- **Chat:** When linked, both sockets join the same Socket.IO room and **only those two** see the **Proximity chat** panel. Moving apart or a better mutual nearest match tears the room down and hides chat.
+- **Proximity for everyone:** The server broadcasts **`proximity:pairs`** (and includes `proximityPairs` in **`world:state`**) so **all** clients see:
+  - **Connector lines** between each linked pair (orange).
+  - **Highlight rings** on **both** players in a pair: **green** on **your** avatar when you are linked, **orange** on linked peers (and on both players when you are a spectator).
+  - **Spectators** (not in a pair) do **not** get the chat panel, but see a small header badge such as `NameA ↔ NameB connected` for pairs they are not part of.
+- **Canvas UX:** Display name above each traveler; your **proximity radius** (faint ring) only on **you**; smoothed motion for **other** players (you stay server-snapped).
 - **Chat UX:** System lines for connect / disconnect / peer left, timestamps and initials on user bubbles, input auto-focus on link, and a short “closing” state before the panel dismisses.
 - **Chat memory (session):** The server keeps an in-memory transcript per **pair room** until the Node process exits. When the same two sockets link again (e.g. walk apart and return in the same tabs), `proximity:connect` includes `history` so the thread continues. Refreshing the page gives new socket IDs, so that pair’s key changes and history starts fresh for those connections.
 
@@ -32,7 +36,7 @@ npm run dev
 - Client: http://localhost:5173 (proxies `/socket.io` to the server)
 - Server: http://localhost:3001 (`GET /health`)
 
-Open two browser windows (or one plus a private window) to test movement, proximity, and chat.
+Open two browser windows (or one plus a private window) to test movement, proximity, and chat. Use a third window to confirm spectator lines, rings, and header badges without seeing the chat panel.
 
 ## Environment variables
 
@@ -44,7 +48,6 @@ Copy `.env.example` to `.env` in the repo root if you run tooling that reads it;
 | `PORT` | Server | Listen port (default `3001`) |
 | `HOST` | Server | Bind address (default `0.0.0.0` for PaaS) |
 | `CLIENT_ORIGIN` | Server | CORS: `true`, `false`, a single origin string, or comma-separated origins for your deployed frontend |
-| `AVATAR_ALLOWED_HOSTS` | Server | Optional comma-separated hostnames allowed for **custom** avatar URLs (plus `localhost`, `127.0.0.1`, and hostname parsed from `CLIENT_ORIGIN` when it is a single URL). Presets `/avatars/preset-1.svg` … `preset-6.svg` are always valid. |
 
 ## Deployment (single demo URL per tier)
 
@@ -81,7 +84,7 @@ Build the client, then serve `client/dist` from Express (already supported when 
 2. **Live demo (recommended):** Deploy client + API (see **Deployment**), then add both URLs at the top of the repo description or here:
    - Frontend: `https://…`
    - API: `https://…` (Socket.IO on same host)
-3. **Demo video (2–5 minutes):** Show two browsers or two users — movement (WASD / click-to-move), real-time sync, moving together until **Linked** appears, sending chat, then moving apart until chat closes.
+3. **Demo video (2–5 minutes):** Show two browsers or two users — movement (WASD / click-to-move), real-time sync, moving together until **Linked** appears, sending chat, then moving apart until chat closes. Optionally show a third client seeing the link on the canvas without chat.
 4. **Assignment form:** Submit the repo link + video as required by your course (e.g. [submission form](https://forms.gle/GtkmYbjw4FVkrCzB8) if that is still the official link).
 
 **Note:** MongoDB was intentionally omitted for V1; all session state is in-memory on the server (document this if your rubric asks for persistence tradeoffs).

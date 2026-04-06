@@ -13,9 +13,8 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "@virtual-cosmos/shared";
-import { sanitizeAvatarUrl } from "./avatarUrl.js";
 import { appendChatMessage } from "./chatHistory.js";
-import { syncProximityPairs } from "./proximity.js";
+import { pairsListFromSet, syncProximityPairs } from "./proximity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -85,34 +84,24 @@ function applyMovement(
 }
 
 io.on("connection", (socket) => {
-  socket.on("player:join", (payload: { displayName?: string; avatarUrl?: unknown }) => {
+  socket.on("player:join", (payload: { displayName?: string }) => {
     if (players.has(socket.id)) return;
     const displayName = sanitizeName(payload?.displayName);
     if (!displayName) {
       socket.emit("player:join_error", { message: "Invalid display name." });
       return;
     }
-    let avatarUrl: string | null = null;
-    if (payload?.avatarUrl != null && String(payload.avatarUrl).trim() !== "") {
-      avatarUrl = sanitizeAvatarUrl(payload.avatarUrl);
-      if (!avatarUrl) {
-        socket.emit("player:join_error", {
-          message:
-            "Invalid avatar URL. Use /avatars/preset-1.svg … preset-6.svg, or same-origin https (http allowed on localhost only).",
-        });
-        return;
-      }
-    }
     const { x, y } = randomSpawn();
     const id = socket.id;
-    const player: PublicPlayer = { id, displayName, avatarUrl, x, y };
+    const player: PublicPlayer = { id, displayName, avatarUrl: null, x, y };
     players.set(id, player);
     socket.broadcast.emit("player:joined", player);
+    syncProximityPairs(io, players, activeProximityPairs);
     socket.emit("world:state", {
       selfId: id,
       players: Array.from(players.values()),
+      proximityPairs: pairsListFromSet(activeProximityPairs),
     });
-    syncProximityPairs(io, players, activeProximityPairs);
   });
 
   socket.on("player:move", (payload: { x?: unknown; y?: unknown }) => {

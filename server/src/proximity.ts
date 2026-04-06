@@ -18,6 +18,18 @@ export function pairKey(a: string, b: string): string {
   return a < b ? `${a}\0${b}` : `${b}\0${a}`;
 }
 
+/** Socket ids for clients to draw link lines / rings for everyone. */
+export type ProximityPairIds = { a: string; b: string };
+
+export function pairsListFromSet(activePairs: Set<string>): ProximityPairIds[] {
+  return [...activePairs]
+    .map((key) => {
+      const [a, b] = key.split("\0");
+      return { a, b };
+    })
+    .sort((x, y) => x.a.localeCompare(y.a) || x.b.localeCompare(y.b));
+}
+
 function chatRoomFromKey(key: string): string {
   return `chat:${key}`;
 }
@@ -60,8 +72,10 @@ export function syncProximityPairs(
   activePairs: Set<string>
 ): void {
   const desired = computeDesiredPairKeys(players);
+  let changed = false;
   for (const key of [...activePairs]) {
     if (!desired.has(key)) {
+      changed = true;
       const [a, b] = key.split("\0");
       tearDownPair(io, a, b);
       activePairs.delete(key);
@@ -69,10 +83,14 @@ export function syncProximityPairs(
   }
   for (const key of desired) {
     if (!activePairs.has(key)) {
+      changed = true;
       const [a, b] = key.split("\0");
       setUpPair(io, players, a, b);
       activePairs.add(key);
     }
+  }
+  if (changed) {
+    io.emit("proximity:pairs", { pairs: pairsListFromSet(activePairs) });
   }
 }
 

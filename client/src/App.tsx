@@ -7,7 +7,6 @@ import {
   PLAYER_RADIUS,
   POSITION_TICK_MS,
 } from "@virtual-cosmos/shared";
-import { AVATAR_PRESETS, isClientAvatarUrlAllowed } from "./avatarUrl";
 import { ChatPanel } from "./components/ChatPanel";
 import { CosmicCanvas } from "./components/CosmicCanvas";
 import type { ChatRow } from "./types/chat";
@@ -28,6 +27,8 @@ type ProximityConnectPayload = ProximityLink & {
     ts: number;
   }>;
 };
+
+type ProximityPairIds = { a: string; b: string };
 
 function socketBaseUrl(): string | undefined {
   const env = import.meta.env.VITE_SERVER_URL;
@@ -54,13 +55,13 @@ function isEditableFocused(target: EventTarget | null): boolean {
 
 export function App() {
   const [name, setName] = useState("");
-  const [joinAvatarUrl, setJoinAvatarUrl] = useState<string>(AVATAR_PRESETS[0]);
-  const [customAvatarUrl, setCustomAvatarUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [players, setPlayers] = useState<Map<string, Player>>(new Map());
   const [proximityLink, setProximityLink] = useState<ProximityLink | null>(null);
+  /** Active chat pairs (server truth); everyone uses this for canvas link visuals. */
+  const [proximityPairs, setProximityPairs] = useState<ProximityPairIds[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatRow[]>([]);
 
   const playersRef = useRef(players);
@@ -84,13 +85,35 @@ export function App() {
     });
   }, [joined]);
 
+  const spectatorProximityPairs = useMemo(() => {
+    if (!selfId) return [];
+    return proximityPairs.filter((p) => p.a !== selfId && p.b !== selfId);
+  }, [proximityPairs, selfId]);
+
+  const spectatorProximityLabels = useMemo(() => {
+    return spectatorProximityPairs.map((p) => {
+      const na = players.get(p.a)?.displayName ?? "Traveler";
+      const nb = players.get(p.b)?.displayName ?? "Traveler";
+      return { key: `${p.a}-${p.b}`, text: `${na} ↔ ${nb} connected` };
+    });
+  }, [spectatorProximityPairs, players]);
+
   useEffect(() => {
     if (!socket) return;
 
-    const onState = (payload: { selfId: string; players: Player[] }) => {
+    const onState = (payload: {
+      selfId: string;
+      players: Player[];
+      proximityPairs?: ProximityPairIds[];
+    }) => {
       setSelfId(payload.selfId);
       setPlayers(new Map(payload.players.map((p) => [p.id, p])));
+      setProximityPairs(payload.proximityPairs ?? []);
       setError(null);
+    };
+
+    const onProximityPairs = (payload: { pairs?: ProximityPairIds[] }) => {
+      setProximityPairs(payload.pairs ?? []);
     };
 
     const onJoined = (p: Player) => {
@@ -196,14 +219,11 @@ export function App() {
     socket.on("player:left", onLeft);
     socket.on("player:moved", onMoved);
     socket.on("player:join_error", onJoinErr);
+    socket.on("proximity:pairs", onProximityPairs);
     socket.on("proximity:connect", onProximityConnect);
     socket.on("proximity:disconnect", onProximityDisconnect);
     socket.connect();
-    const chosenAvatar = customAvatarUrl.trim() || joinAvatarUrl;
-    socket.emit("player:join", {
-      displayName: name.trim(),
-      avatarUrl: chosenAvatar,
-    });
+    socket.emit("player:join", { displayName: name.trim() });
 
     return () => {
       socket.off("world:state", onState);
@@ -211,14 +231,16 @@ export function App() {
       socket.off("player:left", onLeft);
       socket.off("player:moved", onMoved);
       socket.off("player:join_error", onJoinErr);
+      socket.off("proximity:pairs", onProximityPairs);
       socket.off("proximity:connect", onProximityConnect);
       socket.off("proximity:disconnect", onProximityDisconnect);
       proximityEndHandledRef.current = false;
       setProximityLink(null);
+      setProximityPairs([]);
       setChatMessages([]);
       socket.disconnect();
     };
-  }, [socket, name, joinAvatarUrl, customAvatarUrl]);
+  }, [socket, name]);
 
   useEffect(() => {
     if (!socket) return;
@@ -364,17 +386,9 @@ export function App() {
       setError("Enter a display name.");
       return;
     }
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const chosen = customAvatarUrl.trim() || joinAvatarUrl;
-    if (!isClientAvatarUrlAllowed(chosen, origin)) {
-      setError(
-        "Avatar must be a preset below or a full URL on this site (same origin), https or http on localhost."
-      );
-      return;
-    }
     setError(null);
     setJoined(true);
-  }, [name, joinAvatarUrl, customAvatarUrl]);
+  }, [name]);
 
   if (!joined) {
     return (
@@ -384,7 +398,8 @@ export function App() {
             Virtual Cosmos
           </h1>
           <p className="mt-2 text-sm text-cosmos-dim">
-            Proximity-based space. Enter your name to spawn in the world.
+            Proximity-based space. Enter your name to spawn in the world. Everyone uses the same
+            traveler icon; a bright ring marks you, a neutral ring marks others.
           </p>
           <label className="mt-6 block text-xs font-medium uppercase tracking-wide text-slate-400">
             Display name
@@ -395,45 +410,6 @@ export function App() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Alex"
-            onKeyDown={(e) => e.key === "Enter" && enter()}
-          />
-          <label className="mt-5 block text-xs font-medium uppercase tracking-wide text-slate-400">
-            Avatar
-          </label>
-          <p className="mt-1 text-xs text-cosmos-dim">
-            Presets or a full URL on this origin (https in production; localhost http allowed).
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {AVATAR_PRESETS.map((src) => {
-              const selected = joinAvatarUrl === src && !customAvatarUrl.trim();
-              return (
-                <button
-                  key={src}
-                  type="button"
-                  aria-label={`Preset avatar ${src}`}
-                  onClick={() => {
-                    setJoinAvatarUrl(src);
-                    setCustomAvatarUrl("");
-                  }}
-                  className={`h-11 w-11 overflow-hidden rounded-full border-2 transition ${
-                    selected
-                      ? "border-teal-400 ring-2 ring-teal-400/30"
-                      : "border-white/15 hover:border-white/30"
-                  }`}
-                >
-                  <img src={src} alt="" className="h-full w-full object-cover" />
-                </button>
-              );
-            })}
-          </div>
-          <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-slate-400">
-            Custom image URL (optional)
-          </label>
-          <input
-            className="mt-2 w-full rounded-lg border border-white/10 bg-cosmos-void/80 px-3 py-2.5 text-sm outline-none ring-teal-400/30 focus:border-teal-400/50 focus:ring-2"
-            value={customAvatarUrl}
-            onChange={(e) => setCustomAvatarUrl(e.target.value)}
-            placeholder="https://yoursite.com/avatar.png"
             onKeyDown={(e) => e.key === "Enter" && enter()}
           />
           {error && (
@@ -474,6 +450,17 @@ export function App() {
             <p className="rounded-md border border-amber-500/35 bg-amber-500/10 px-2 py-1 text-amber-100/90">
               Chat ending…
             </p>
+          ) : spectatorProximityLabels.length > 0 ? (
+            <div className="flex max-w-[min(100%,20rem)] flex-col items-end gap-1">
+              {spectatorProximityLabels.map(({ key, text }) => (
+                <p
+                  key={key}
+                  className="rounded-md border border-orange-500/35 bg-orange-500/10 px-2 py-1 text-[11px] leading-snug text-orange-100/95"
+                >
+                  {text}
+                </p>
+              ))}
+            </div>
           ) : (
             <p className="text-slate-500">No proximity link</p>
           )}
@@ -489,9 +476,7 @@ export function App() {
           <CosmicCanvas
             players={players}
             selfId={selfId}
-            linkedPeerId={
-              proximityLink && !proximityLink.closing ? proximityLink.peerId : null
-            }
+            proximityPairs={proximityPairs}
             onWorldClick={onWorldClick}
           />
         </div>
