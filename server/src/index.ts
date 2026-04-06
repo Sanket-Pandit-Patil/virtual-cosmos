@@ -33,6 +33,11 @@ const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
 app.use(express.json());
 
+/** Keep before static + SPA fallback; support `/health` and `/health/` (trailing slash otherwise 404). */
+app.get(["/health", "/health/"], (_req, res) => {
+  res.json({ ok: true });
+});
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: CLIENT_ORIGIN, methods: ["GET", "POST"] },
@@ -144,10 +149,6 @@ io.on("connection", (socket) => {
     io.emit("player:left", { id: socket.id });
     syncProximityPairs(io, players, activeProximityPairs);
   });
-});
-
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
 });
 
 const clientDist = path.join(__dirname, "../../client/dist");
