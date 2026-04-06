@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
+  CHAT_MESSAGE_MAX_LENGTH,
   clampToWorld,
   DISPLAY_NAME_MAX_LENGTH,
   MAX_DELTA_PER_TICK,
@@ -16,7 +17,16 @@ import { syncProximityPairs } from "./proximity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? true;
+
+function parseClientOrigin(): boolean | string | string[] {
+  const raw = process.env.CLIENT_ORIGIN;
+  if (raw == null || raw === "" || raw === "true") return true;
+  if (raw === "false") return false;
+  if (raw.includes(",")) return raw.split(",").map((s) => s.trim());
+  return raw;
+}
+
+const CLIENT_ORIGIN = parseClientOrigin();
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
@@ -103,6 +113,25 @@ io.on("connection", (socket) => {
     syncProximityPairs(io, players, activeProximityPairs);
   });
 
+  socket.on(
+    "chat:message",
+    (payload: { roomId?: unknown; text?: unknown }) => {
+      if (typeof payload?.roomId !== "string" || typeof payload?.text !== "string")
+        return;
+      const roomId = payload.roomId;
+      if (!socket.rooms.has(roomId)) return;
+      const text = payload.text.trim().slice(0, CHAT_MESSAGE_MAX_LENGTH);
+      if (!text) return;
+      const sender = players.get(socket.id);
+      io.to(roomId).emit("chat:message", {
+        fromId: socket.id,
+        fromName: sender?.displayName ?? "Traveler",
+        text,
+        ts: Date.now(),
+      });
+    }
+  );
+
   socket.on("disconnect", () => {
     if (!players.has(socket.id)) return;
     players.delete(socket.id);
@@ -123,6 +152,7 @@ if (fs.existsSync(clientDist)) {
   });
 }
 
-httpServer.listen(PORT, () => {
-  console.log(`[cosmos] server http://localhost:${PORT}`);
+const HOST = process.env.HOST ?? "0.0.0.0";
+httpServer.listen(PORT, HOST, () => {
+  console.log(`[cosmos] server listening on ${HOST}:${PORT}`);
 });

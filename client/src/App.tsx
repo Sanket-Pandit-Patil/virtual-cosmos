@@ -6,6 +6,7 @@ import {
   MAX_DELTA_PER_TICK,
   POSITION_TICK_MS,
 } from "@virtual-cosmos/shared";
+import { ChatPanel } from "./components/ChatPanel";
 import { CosmicCanvas } from "./components/CosmicCanvas";
 import type { Player } from "./types";
 
@@ -242,8 +243,15 @@ export function App() {
           )}
         </div>
       </header>
-      <main className="min-h-0 flex-1 p-4">
-        <CosmicCanvas players={players} selfId={selfId} />
+      <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:flex-row">
+        <div className="min-h-0 min-w-0 flex-1">
+          <CosmicCanvas players={players} selfId={selfId} />
+        </div>
+        {proximityLink && selfId && socket ? (
+          <div className="flex max-h-[40vh] min-h-[220px] shrink-0 flex-col lg:max-h-none lg:min-h-0 lg:w-80">
+            <ChatPanel key={proximityLink.roomId} socket={socket} link={proximityLink} selfId={selfId} />
+          </div>
+        ) : null}
       </main>
     </div>
   );
