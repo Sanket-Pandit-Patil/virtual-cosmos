@@ -9,12 +9,14 @@ import {
 } from "@virtual-cosmos/shared";
 import { ChatPanel } from "./components/ChatPanel";
 import { CosmicCanvas } from "./components/CosmicCanvas";
+import type { ChatRow } from "./types/chat";
 import type { Player } from "./types";
 
 type ProximityLink = {
   peerId: string;
   roomId: string;
   displayName: string;
+  closing?: boolean;
 };
 
 function socketBaseUrl(): string | undefined {
@@ -47,14 +49,19 @@ export function App() {
   const [selfId, setSelfId] = useState<string | null>(null);
   const [players, setPlayers] = useState<Map<string, Player>>(new Map());
   const [proximityLink, setProximityLink] = useState<ProximityLink | null>(null);
+  const [chatMessages, setChatMessages] = useState<ChatRow[]>([]);
 
   const playersRef = useRef(players);
   const selfIdRef = useRef(selfId);
+  const proximityLinkRef = useRef(proximityLink);
+  /** Avoid duplicate system lines when proximity:disconnect and player:left both arrive. */
+  const proximityEndHandledRef = useRef(false);
   const keysRef = useRef<Set<string>>(new Set());
   const moveTargetRef = useRef<{ x: number; y: number } | null>(null);
 
   playersRef.current = players;
   selfIdRef.current = selfId;
+  proximityLinkRef.current = proximityLink;
 
   const socket = useMemo<Socket | null>(() => {
     if (!joined) return null;
@@ -79,7 +86,25 @@ export function App() {
     };
 
     const onLeft = (payload: { id: string }) => {
-      setProximityLink((cur) => (cur?.peerId === payload.id ? null : cur));
+      const cur = proximityLinkRef.current;
+      if (cur?.peerId === payload.id && !cur.closing) {
+        if (!proximityEndHandledRef.current) {
+          proximityEndHandledRef.current = true;
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              kind: "system",
+              id: `left-${Date.now()}`,
+              variant: "peer_left",
+              text: `${cur.displayName} left the cosmos.`,
+              ts: Date.now(),
+            },
+          ]);
+        }
+      }
+      setProximityLink((c) =>
+        c?.peerId === payload.id ? { ...c, closing: true } : c
+      );
       setPlayers((prev) => {
         const next = new Map(prev);
         next.delete(payload.id);
@@ -104,11 +129,36 @@ export function App() {
     };
 
     const onProximityConnect = (payload: ProximityLink) => {
-      setProximityLink(payload);
+      proximityEndHandledRef.current = false;
+      setChatMessages([
+        {
+          kind: "system",
+          id: `connect-${Date.now()}`,
+          variant: "connect",
+          text: `Connected to ${payload.displayName}.`,
+          ts: Date.now(),
+        },
+      ]);
+      setProximityLink({ ...payload, closing: false });
     };
 
     const onProximityDisconnect = (payload: { peerId: string }) => {
-      setProximityLink((cur) => (cur?.peerId === payload.peerId ? null : cur));
+      const cur = proximityLinkRef.current;
+      if (!cur || cur.peerId !== payload.peerId) return;
+      if (!cur.closing && !proximityEndHandledRef.current) {
+        proximityEndHandledRef.current = true;
+        setChatMessages((prev) => [
+          ...prev,
+          {
+            kind: "system",
+            id: `disconnect-${Date.now()}`,
+            variant: "disconnect",
+            text: `Disconnected from ${cur.displayName}.`,
+            ts: Date.now(),
+          },
+        ]);
+      }
+      setProximityLink({ ...cur, closing: true });
     };
 
     socket.on("world:state", onState);
@@ -129,10 +179,47 @@ export function App() {
       socket.off("player:join_error", onJoinErr);
       socket.off("proximity:connect", onProximityConnect);
       socket.off("proximity:disconnect", onProximityDisconnect);
+      proximityEndHandledRef.current = false;
       setProximityLink(null);
+      setChatMessages([]);
       socket.disconnect();
     };
   }, [socket, name]);
+
+  useEffect(() => {
+    if (!socket) return;
+    const onChat = (m: {
+      fromId: string;
+      fromName: string;
+      text: string;
+      ts?: number;
+    }) => {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          kind: "user" as const,
+          fromId: m.fromId,
+          fromName: m.fromName,
+          text: m.text,
+          ts: typeof m.ts === "number" ? m.ts : Date.now(),
+        },
+      ]);
+    };
+    socket.on("chat:message", onChat);
+    return () => {
+      socket.off("chat:message", onChat);
+    };
+  }, [socket]);
+
+  useEffect(() => {
+    if (!proximityLink?.closing) return;
+    const t = window.setTimeout(() => {
+      proximityEndHandledRef.current = false;
+      setProximityLink(null);
+      setChatMessages([]);
+    }, 2800);
+    return () => window.clearTimeout(t);
+  }, [proximityLink?.closing, proximityLink?.roomId]);
 
   useEffect(() => {
     if (!socket || !selfId) return;
@@ -298,9 +385,13 @@ export function App() {
           <p className="text-slate-400">
             You: <span className="text-teal-300">{name.trim()}</span>
           </p>
-          {proximityLink ? (
+          {proximityLink && !proximityLink.closing ? (
             <p className="rounded-md border border-teal-500/40 bg-teal-500/10 px-2 py-1 text-teal-200">
               Linked: <span className="font-medium">{proximityLink.displayName}</span>
+            </p>
+          ) : proximityLink?.closing ? (
+            <p className="rounded-md border border-amber-500/35 bg-amber-500/10 px-2 py-1 text-amber-100/90">
+              Chat ending…
             </p>
           ) : (
             <p className="text-slate-500">No proximity link</p>
@@ -314,11 +405,24 @@ export function App() {
           role="application"
           aria-label="Cosmos playfield. Click a destination or use WASD or arrow keys to move."
         >
-          <CosmicCanvas players={players} selfId={selfId} onWorldClick={onWorldClick} />
+          <CosmicCanvas
+            players={players}
+            selfId={selfId}
+            linkedPeerId={
+              proximityLink && !proximityLink.closing ? proximityLink.peerId : null
+            }
+            onWorldClick={onWorldClick}
+          />
         </div>
         {proximityLink && selfId && socket ? (
           <div className="flex max-h-[40vh] min-h-[220px] shrink-0 flex-col lg:max-h-none lg:min-h-0 lg:w-80">
-            <ChatPanel key={proximityLink.roomId} socket={socket} link={proximityLink} selfId={selfId} />
+            <ChatPanel
+              key={proximityLink.roomId}
+              socket={socket}
+              link={proximityLink}
+              selfId={selfId}
+              messages={chatMessages}
+            />
           </div>
         ) : null}
       </main>
