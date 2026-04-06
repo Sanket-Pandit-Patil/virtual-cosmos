@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Application, Container, Graphics } from "pixi.js";
+import { Application, Container, FederatedPointerEvent, Graphics, Rectangle } from "pixi.js";
 import {
   PLAYER_RADIUS,
   WORLD_HEIGHT,
@@ -10,14 +10,18 @@ import type { Player } from "../types";
 type Props = {
   players: Map<string, Player>;
   selfId: string | null;
+  /** World coordinates (same space as server x/y). */
+  onWorldClick?: (x: number, y: number) => void;
 };
 
-export function CosmicCanvas({ players, selfId }: Props) {
+export function CosmicCanvas({ players, selfId, onWorldClick }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
   const worldRef = useRef<Container | null>(null);
   const spritesRef = useRef<Map<string, Graphics>>(new Map());
   const [ready, setReady] = useState(false);
+  const clickRef = useRef(onWorldClick);
+  clickRef.current = onWorldClick;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -50,12 +54,22 @@ export function CosmicCanvas({ players, selfId }: Props) {
       }
       host.appendChild(app.canvas);
       appRef.current = app;
+      app.stage.eventMode = "static";
 
       const world = new Container();
       worldRef.current = world;
+      world.eventMode = "static";
+      world.cursor = "pointer";
+      world.hitArea = new Rectangle(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+      const onPointerDown = (e: FederatedPointerEvent) => {
+        const local = world.toLocal(e.global);
+        clickRef.current?.(local.x, local.y);
+      };
+      world.on("pointerdown", onPointerDown);
       app.stage.addChild(world);
 
       const grid = new Graphics();
+      grid.eventMode = "none";
       grid.alpha = 0.12;
       const step = 80;
       for (let x = 0; x <= WORLD_WIDTH; x += step) {
@@ -70,6 +84,7 @@ export function CosmicCanvas({ players, selfId }: Props) {
       world.addChild(grid);
 
       const border = new Graphics();
+      border.eventMode = "none";
       border.rect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
       border.stroke({ width: 2, color: 0x2dd4bf, alpha: 0.35 });
       world.addChild(border);
@@ -105,6 +120,7 @@ export function CosmicCanvas({ players, selfId }: Props) {
       let g = sprites.get(id);
       if (!g) {
         g = new Graphics();
+        g.eventMode = "none";
         world.addChild(g);
         sprites.set(id, g);
       }

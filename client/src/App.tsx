@@ -4,6 +4,7 @@ import {
   clampToWorld,
   DISPLAY_NAME_MAX_LENGTH,
   MAX_DELTA_PER_TICK,
+  PLAYER_RADIUS,
   POSITION_TICK_MS,
 } from "@virtual-cosmos/shared";
 import { ChatPanel } from "./components/ChatPanel";
@@ -23,6 +24,22 @@ function socketBaseUrl(): string | undefined {
   return undefined;
 }
 
+/** True when focus is in a field where WASD should type, not move. */
+function isEditableFocused(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "TEXTAREA") return true;
+  if (tag === "SELECT") return true;
+  if (target.isContentEditable) return true;
+  if (tag === "INPUT") {
+    const type = (target as HTMLInputElement).type.toLowerCase();
+    return ["text", "search", "email", "password", "url", "tel", "number"].includes(
+      type
+    );
+  }
+  return false;
+}
+
 export function App() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +51,7 @@ export function App() {
   const playersRef = useRef(players);
   const selfIdRef = useRef(selfId);
   const keysRef = useRef<Set<string>>(new Set());
+  const moveTargetRef = useRef<{ x: number; y: number } | null>(null);
 
   playersRef.current = players;
   selfIdRef.current = selfId;
@@ -117,21 +135,41 @@ export function App() {
   }, [socket, name]);
 
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !selfId) return;
+
+    const movementKeys = new Set([
+      "w",
+      "a",
+      "s",
+      "d",
+      "arrowup",
+      "arrowdown",
+      "arrowleft",
+      "arrowright",
+    ]);
 
     const down = (e: KeyboardEvent) => {
-      keysRef.current.add(e.key.toLowerCase());
+      const k = e.key.toLowerCase();
+      if (movementKeys.has(k) && isEditableFocused(e.target)) {
+        return;
+      }
+      if (movementKeys.has(k)) {
+        e.preventDefault();
+        moveTargetRef.current = null;
+      }
+      keysRef.current.add(k);
     };
     const up = (e: KeyboardEvent) => {
       keysRef.current.delete(e.key.toLowerCase());
     };
 
-    window.addEventListener("keydown", down);
-    window.addEventListener("keyup", up);
+    window.addEventListener("keydown", down, { capture: true });
+    window.addEventListener("keyup", up, { capture: true });
 
     const tick = () => {
+      if (!socket.connected) return;
       const sid = selfIdRef.current;
-      if (!sid || !socket.connected) return;
+      if (!sid) return;
       const map = playersRef.current;
       const self = map.get(sid);
       if (!self) return;
@@ -139,10 +177,37 @@ export function App() {
       const k = keysRef.current;
       let ix = 0;
       let iy = 0;
-      if (k.has("w") || k.has("arrowup")) iy -= 1;
-      if (k.has("s") || k.has("arrowdown")) iy += 1;
-      if (k.has("a") || k.has("arrowleft")) ix -= 1;
-      if (k.has("d") || k.has("arrowright")) ix += 1;
+      const keyMove =
+        k.has("w") ||
+        k.has("arrowup") ||
+        k.has("s") ||
+        k.has("arrowdown") ||
+        k.has("a") ||
+        k.has("arrowleft") ||
+        k.has("d") ||
+        k.has("arrowright");
+
+      if (keyMove) {
+        moveTargetRef.current = null;
+        if (k.has("w") || k.has("arrowup")) iy -= 1;
+        if (k.has("s") || k.has("arrowdown")) iy += 1;
+        if (k.has("a") || k.has("arrowleft")) ix -= 1;
+        if (k.has("d") || k.has("arrowright")) ix += 1;
+      } else if (moveTargetRef.current) {
+        const t = moveTargetRef.current;
+        const dx = t.x - self.x;
+        const dy = t.y - self.y;
+        const dist = Math.hypot(dx, dy);
+        const arrive = PLAYER_RADIUS * 2.5;
+        if (dist <= arrive) {
+          moveTargetRef.current = null;
+          return;
+        }
+        ix = dx / dist;
+        iy = dy / dist;
+      } else {
+        return;
+      }
 
       const len = Math.hypot(ix, iy);
       if (len < 1e-6) return;
@@ -156,22 +221,21 @@ export function App() {
       socket.emit("player:move", c);
     };
 
-    let intervalId: number | undefined;
-    const startTick = () => {
-      if (intervalId !== undefined) window.clearInterval(intervalId);
-      intervalId = window.setInterval(tick, POSITION_TICK_MS);
-    };
-
-    socket.on("connect", startTick);
-    if (socket.connected) startTick();
+    const intervalId = window.setInterval(tick, POSITION_TICK_MS);
 
     return () => {
-      socket.off("connect", startTick);
-      window.removeEventListener("keydown", down);
-      window.removeEventListener("keyup", up);
-      if (intervalId !== undefined) window.clearInterval(intervalId);
+      window.removeEventListener("keydown", down, { capture: true });
+      window.removeEventListener("keyup", up, { capture: true });
+      window.clearInterval(intervalId);
+      keysRef.current.clear();
+      moveTargetRef.current = null;
     };
-  }, [socket]);
+  }, [socket, selfId]);
+
+  const onWorldClick = useCallback((x: number, y: number) => {
+    const c = clampToWorld(x, y);
+    moveTargetRef.current = { x: c.x, y: c.y };
+  }, []);
 
   const enter = useCallback(() => {
     const t = name.trim();
@@ -227,7 +291,7 @@ export function App() {
         <div>
           <h1 className="font-display text-lg font-semibold text-white">Virtual Cosmos</h1>
           <p className="text-xs text-cosmos-dim">
-            {players.size} traveler{players.size === 1 ? "" : "s"} online · WASD / arrows to move
+            {players.size} traveler{players.size === 1 ? "" : "s"} online · WASD / arrows / click to move
           </p>
         </div>
         <div className="flex flex-col items-end gap-1 text-right text-xs">
@@ -244,8 +308,13 @@ export function App() {
         </div>
       </header>
       <main className="flex min-h-0 flex-1 flex-col gap-4 p-4 lg:flex-row">
-        <div className="min-h-0 min-w-0 flex-1">
-          <CosmicCanvas players={players} selfId={selfId} />
+        <div
+          className="min-h-0 min-w-0 flex-1 rounded-xl outline-none ring-offset-2 ring-offset-cosmos-void focus-visible:ring-2 focus-visible:ring-teal-500/50"
+          tabIndex={0}
+          role="application"
+          aria-label="Cosmos playfield. Click a destination or use WASD or arrow keys to move."
+        >
+          <CosmicCanvas players={players} selfId={selfId} onWorldClick={onWorldClick} />
         </div>
         {proximityLink && selfId && socket ? (
           <div className="flex max-h-[40vh] min-h-[220px] shrink-0 flex-col lg:max-h-none lg:min-h-0 lg:w-80">
