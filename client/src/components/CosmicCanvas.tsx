@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Application,
+  Assets,
   Container,
   FederatedPointerEvent,
   Graphics,
   Rectangle,
+  Sprite,
   Text,
+  Texture,
 } from "pixi.js";
 import {
   PLAYER_RADIUS,
@@ -13,6 +16,7 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "@virtual-cosmos/shared";
+import { resolveAvatarUrl } from "../avatarUrl";
 import type { Player } from "../types";
 
 type Props = {
@@ -24,15 +28,10 @@ type Props = {
 
 const LERP = 0.2;
 
-/** Self avatar: blue */
 const SELF_FILL = 0x3b82f6;
 const SELF_STROKE = 0x93c5fd;
-
-/** Other players: green */
 const OTHER_FILL = 0x22c55e;
 const OTHER_STROKE = 0x86efac;
-
-/** Linked peer outer ring: orange / amber */
 const LINK_OUTLINE = 0xf97316;
 
 const NAME_LABEL_STYLE = {
@@ -66,8 +65,58 @@ const INITIAL_STYLE = {
 function firstLetter(displayName: string): string {
   const t = displayName.trim();
   if (!t) return "?";
-  const ch = t[0];
-  return ch.toUpperCase();
+  return t[0].toUpperCase();
+}
+
+/** root → avatarWrap(0) → fallback(0), maskG(1), sprite(2); ring(1); nameLabel(2) */
+function getAvatarParts(root: Container) {
+  const avatarWrap = root.getChildAt(0) as Container;
+  const fallback = avatarWrap.getChildAt(0) as Container;
+  const maskG = avatarWrap.getChildAt(1) as Graphics;
+  const sprite = avatarWrap.getChildAt(2) as Sprite;
+  const body = fallback.getChildAt(0) as Graphics;
+  const initial = fallback.getChildAt(1) as Text;
+  return { avatarWrap, fallback, maskG, sprite, body, initial };
+}
+
+async function applyPlayerAvatar(
+  root: Container,
+  player: Player,
+  signalCheck: () => boolean
+): Promise<void> {
+  const { fallback, maskG, sprite, initial } = getAvatarParts(root);
+  initial.text = firstLetter(player.displayName);
+
+  const absolute = resolveAvatarUrl(player.avatarUrl ?? undefined);
+  if (!absolute) {
+    sprite.visible = false;
+    sprite.texture = Texture.WHITE;
+    sprite.width = 0;
+    sprite.height = 0;
+    fallback.visible = true;
+    return;
+  }
+
+  try {
+    const texture = await Assets.load(absolute);
+    if (!signalCheck()) return;
+    sprite.texture = texture;
+    sprite.anchor.set(0.5, 0.5);
+    const d = PLAYER_RADIUS * 2;
+    const sc = Math.max(d / sprite.texture.width, d / sprite.texture.height);
+    sprite.scale.set(sc);
+    sprite.position.set(0, 0);
+    sprite.mask = maskG;
+    sprite.visible = true;
+    fallback.visible = false;
+  } catch {
+    if (!signalCheck()) return;
+    sprite.visible = false;
+    sprite.texture = Texture.WHITE;
+    sprite.width = 0;
+    sprite.height = 0;
+    fallback.visible = true;
+  }
 }
 
 export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Props) {
@@ -80,6 +129,7 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
   const playerRootsRef = useRef<Map<string, Container>>(new Map());
   const targetsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const smoothRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const avatarLoadEpochRef = useRef<Map<string, number>>(new Map());
   const [ready, setReady] = useState(false);
   const clickRef = useRef(onWorldClick);
   clickRef.current = onWorldClick;
@@ -89,6 +139,9 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
   selfIdRef.current = selfId;
   linkedPeerIdRef.current = linkedPeerId;
 
+  const playersRef = useRef(players);
+  playersRef.current = players;
+
   useEffect(() => {
     const m = targetsRef.current;
     const smooth = smoothRef.current;
@@ -96,6 +149,7 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
       if (!players.has(id)) {
         m.delete(id);
         smooth.delete(id);
+        avatarLoadEpochRef.current.delete(id);
       }
     }
     players.forEach((p, id) => {
@@ -121,11 +175,10 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
     };
 
     const tick = () => {
-      const world = worldRef.current;
       const playersRoot = playersRootRef.current;
       const proximityGfx = proximityGfxRef.current;
       const linkLineGfx = linkLineGfxRef.current;
-      if (!world || !playersRoot || !proximityGfx || !linkLineGfx) return;
+      if (!playersRoot || !proximityGfx || !linkLineGfx) return;
 
       const targets = targetsRef.current;
       const smooth = smoothRef.current;
@@ -196,11 +249,10 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
       world.eventMode = "static";
       world.cursor = "pointer";
       world.hitArea = new Rectangle(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-      const onPointerDown = (e: FederatedPointerEvent) => {
+      world.on("pointerdown", (e: FederatedPointerEvent) => {
         const local = world.toLocal(e.global);
         clickRef.current?.(local.x, local.y);
-      };
-      world.on("pointerdown", onPointerDown);
+      });
       app.stage.addChild(world);
 
       const grid = new Graphics();
@@ -257,6 +309,7 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
         a.ticker.remove(tick);
       }
       playerRootsRef.current.clear();
+      avatarLoadEpochRef.current.clear();
       proximityGfxRef.current = null;
       linkLineGfxRef.current = null;
       playersRootRef.current = null;
@@ -276,19 +329,41 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
 
     for (const [id, p] of players) {
       seen.add(id);
-      let root = roots.get(id);
-      if (!root) {
-        root = new Container();
-        root.eventMode = "none";
-        root.zIndex = id === selfId ? 2 : 1;
+      let playerRoot = roots.get(id);
+      if (!playerRoot) {
+        playerRoot = new Container();
+        playerRoot.eventMode = "none";
+        playerRoot.zIndex = id === selfId ? 2 : 1;
 
+        const avatarWrap = new Container();
+        avatarWrap.eventMode = "none";
+
+        const fallback = new Container();
+        fallback.eventMode = "none";
         const body = new Graphics();
         body.eventMode = "none";
-
         const initial = new Text({ text: "?", style: INITIAL_STYLE });
         initial.anchor.set(0.5, 0.5);
         initial.position.set(0, 0);
         initial.eventMode = "none";
+        fallback.addChild(body);
+        fallback.addChild(initial);
+
+        const maskG = new Graphics();
+        maskG.eventMode = "none";
+        maskG.circle(0, 0, PLAYER_RADIUS);
+        maskG.fill({ color: 0xffffff });
+
+        const sprite = new Sprite({ texture: Texture.WHITE });
+        sprite.anchor.set(0.5, 0.5);
+        sprite.visible = false;
+        sprite.width = 0;
+        sprite.height = 0;
+        sprite.eventMode = "none";
+
+        avatarWrap.addChild(fallback);
+        avatarWrap.addChild(maskG);
+        avatarWrap.addChild(sprite);
 
         const ring = new Graphics();
         ring.eventMode = "none";
@@ -298,22 +373,21 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
         nameLabel.position.set(0, -PLAYER_RADIUS - 8);
         nameLabel.eventMode = "none";
 
-        root.addChild(body);
-        root.addChild(initial);
-        root.addChild(ring);
-        root.addChild(nameLabel);
-        playersRoot.addChild(root);
-        roots.set(id, root);
+        playerRoot.addChild(avatarWrap);
+        playerRoot.addChild(ring);
+        playerRoot.addChild(nameLabel);
+        playersRoot.addChild(playerRoot);
+        roots.set(id, playerRoot);
       }
 
-      const body = root.getChildAt(0) as Graphics;
-      const initial = root.getChildAt(1) as Text;
-      const ring = root.getChildAt(2) as Graphics;
-      const nameLabel = root.getChildAt(3) as Text;
+      const pr = roots.get(id)!;
+      const { body, initial } = getAvatarParts(pr);
+      const ring = pr.getChildAt(1) as Graphics;
+      const nameLabel = pr.getChildAt(2) as Text;
 
       nameLabel.text = p.displayName;
       initial.text = firstLetter(p.displayName);
-      root.zIndex = id === selfId ? 2 : 1;
+      pr.zIndex = id === selfId ? 2 : 1;
 
       const isSelf = id === selfId;
       const isLinkedPeer = Boolean(linkedPeerId && id === linkedPeerId);
@@ -333,16 +407,28 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
         ring.circle(0, 0, PLAYER_RADIUS + 5);
         ring.stroke({ width: 3, color: LINK_OUTLINE, alpha: 1 });
       }
+
+      const prevEpoch = avatarLoadEpochRef.current.get(id) ?? 0;
+      const nextEpoch = prevEpoch + 1;
+      avatarLoadEpochRef.current.set(id, nextEpoch);
+      const urlSnapshot = p.avatarUrl ?? null;
+      void applyPlayerAvatar(pr, p, () => {
+        return (
+          avatarLoadEpochRef.current.get(id) === nextEpoch &&
+          (playersRef.current.get(id)?.avatarUrl ?? null) === urlSnapshot
+        );
+      });
     }
 
     for (const id of roots.keys()) {
       if (!seen.has(id)) {
-        const root = roots.get(id);
-        if (root) {
-          playersRoot.removeChild(root);
-          root.destroy({ children: true });
+        const dead = roots.get(id);
+        if (dead) {
+          playersRoot.removeChild(dead);
+          dead.destroy({ children: true });
         }
         roots.delete(id);
+        avatarLoadEpochRef.current.delete(id);
       }
     }
   }, [players, selfId, linkedPeerId, ready]);

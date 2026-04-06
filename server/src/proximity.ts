@@ -5,6 +5,7 @@ import { getChatHistory } from "./chatHistory.js";
 export type PlayerState = {
   id: string;
   displayName: string;
+  avatarUrl: string | null;
   x: number;
   y: number;
 };

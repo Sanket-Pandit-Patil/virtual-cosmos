@@ -4,6 +4,7 @@ A 2D multiplayer “cosmos” where travelers appear on a shared plane, move in 
 
 ## Behavior (V1)
 
+- **Avatars:** Six built-in SVG presets under `/avatars/preset-1.svg` … `preset-6.svg`, or an optional **same-origin** full image URL (https in production; http allowed on localhost). The server re-validates; set `AVATAR_ALLOWED_HOSTS` if images live on another domain. Pixi draws a circular **masked** image with **initial + colored circle fallback** if the URL fails.
 - **Movement:** WASD or arrow keys; the client sends absolute `(x, y)` on a fixed tick; the server clamps to the world and caps per-tick travel distance.
 - **Proximity:** Each player’s nearest neighbor within `PROXIMITY_RADIUS` is computed on the server. A **link** exists only when both players are each other’s nearest in-range neighbor (stable pairwise symmetry).
 - **Chat:** When linked, both sockets join the same Socket.IO room; the chat panel opens. Moving apart or a better mutual nearest match tears the room down and hides chat.
@@ -43,6 +44,7 @@ Copy `.env.example` to `.env` in the repo root if you run tooling that reads it;
 | `PORT` | Server | Listen port (default `3001`) |
 | `HOST` | Server | Bind address (default `0.0.0.0` for PaaS) |
 | `CLIENT_ORIGIN` | Server | CORS: `true`, `false`, a single origin string, or comma-separated origins for your deployed frontend |
+| `AVATAR_ALLOWED_HOSTS` | Server | Optional comma-separated hostnames allowed for **custom** avatar URLs (plus `localhost`, `127.0.0.1`, and hostname parsed from `CLIENT_ORIGIN` when it is a single URL). Presets `/avatars/preset-1.svg` … `preset-6.svg` are always valid. |
 
 ## Deployment (single demo URL per tier)
 

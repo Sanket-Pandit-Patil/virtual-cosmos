@@ -7,6 +7,7 @@ import {
   PLAYER_RADIUS,
   POSITION_TICK_MS,
 } from "@virtual-cosmos/shared";
+import { AVATAR_PRESETS, isClientAvatarUrlAllowed } from "./avatarUrl";
 import { ChatPanel } from "./components/ChatPanel";
 import { CosmicCanvas } from "./components/CosmicCanvas";
 import type { ChatRow } from "./types/chat";
@@ -53,6 +54,8 @@ function isEditableFocused(target: EventTarget | null): boolean {
 
 export function App() {
   const [name, setName] = useState("");
+  const [joinAvatarUrl, setJoinAvatarUrl] = useState<string>(AVATAR_PRESETS[0]);
+  const [customAvatarUrl, setCustomAvatarUrl] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [joined, setJoined] = useState(false);
   const [selfId, setSelfId] = useState<string | null>(null);
@@ -196,7 +199,11 @@ export function App() {
     socket.on("proximity:connect", onProximityConnect);
     socket.on("proximity:disconnect", onProximityDisconnect);
     socket.connect();
-    socket.emit("player:join", { displayName: name.trim() });
+    const chosenAvatar = customAvatarUrl.trim() || joinAvatarUrl;
+    socket.emit("player:join", {
+      displayName: name.trim(),
+      avatarUrl: chosenAvatar,
+    });
 
     return () => {
       socket.off("world:state", onState);
@@ -211,7 +218,7 @@ export function App() {
       setChatMessages([]);
       socket.disconnect();
     };
-  }, [socket, name]);
+  }, [socket, name, joinAvatarUrl, customAvatarUrl]);
 
   useEffect(() => {
     if (!socket) return;
@@ -357,9 +364,17 @@ export function App() {
       setError("Enter a display name.");
       return;
     }
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const chosen = customAvatarUrl.trim() || joinAvatarUrl;
+    if (!isClientAvatarUrlAllowed(chosen, origin)) {
+      setError(
+        "Avatar must be a preset below or a full URL on this site (same origin), https or http on localhost."
+      );
+      return;
+    }
     setError(null);
     setJoined(true);
-  }, [name]);
+  }, [name, joinAvatarUrl, customAvatarUrl]);
 
   if (!joined) {
     return (
@@ -380,6 +395,45 @@ export function App() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Alex"
+            onKeyDown={(e) => e.key === "Enter" && enter()}
+          />
+          <label className="mt-5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            Avatar
+          </label>
+          <p className="mt-1 text-xs text-cosmos-dim">
+            Presets or a full URL on this origin (https in production; localhost http allowed).
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {AVATAR_PRESETS.map((src) => {
+              const selected = joinAvatarUrl === src && !customAvatarUrl.trim();
+              return (
+                <button
+                  key={src}
+                  type="button"
+                  aria-label={`Preset avatar ${src}`}
+                  onClick={() => {
+                    setJoinAvatarUrl(src);
+                    setCustomAvatarUrl("");
+                  }}
+                  className={`h-11 w-11 overflow-hidden rounded-full border-2 transition ${
+                    selected
+                      ? "border-teal-400 ring-2 ring-teal-400/30"
+                      : "border-white/15 hover:border-white/30"
+                  }`}
+                >
+                  <img src={src} alt="" className="h-full w-full object-cover" />
+                </button>
+              );
+            })}
+          </div>
+          <label className="mt-4 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            Custom image URL (optional)
+          </label>
+          <input
+            className="mt-2 w-full rounded-lg border border-white/10 bg-cosmos-void/80 px-3 py-2.5 text-sm outline-none ring-teal-400/30 focus:border-teal-400/50 focus:ring-2"
+            value={customAvatarUrl}
+            onChange={(e) => setCustomAvatarUrl(e.target.value)}
+            placeholder="https://yoursite.com/avatar.png"
             onKeyDown={(e) => e.key === "Enter" && enter()}
           />
           {error && (
