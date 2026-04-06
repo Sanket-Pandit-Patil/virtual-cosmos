@@ -13,6 +13,7 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "@virtual-cosmos/shared";
+import { appendChatMessage } from "./chatHistory.js";
 import { syncProximityPairs } from "./proximity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -123,12 +124,15 @@ io.on("connection", (socket) => {
       const text = payload.text.trim().slice(0, CHAT_MESSAGE_MAX_LENGTH);
       if (!text) return;
       const sender = players.get(socket.id);
-      io.to(roomId).emit("chat:message", {
+      const ts = Date.now();
+      const msg = {
         fromId: socket.id,
         fromName: sender?.displayName ?? "Traveler",
         text,
-        ts: Date.now(),
-      });
+        ts,
+      };
+      appendChatMessage(roomId, msg);
+      io.to(roomId).emit("chat:message", msg);
     }
   );
 

@@ -1,5 +1,6 @@
 import type { Server } from "socket.io";
 import { PROXIMITY_RADIUS } from "@virtual-cosmos/shared";
+import { getChatHistory } from "./chatHistory.js";
 
 export type PlayerState = {
   id: string;
@@ -86,15 +87,18 @@ function setUpPair(
   io.sockets.sockets.get(b)?.join(room);
   const pa = players.get(a);
   const pb = players.get(b);
+  const history = getChatHistory(room);
   io.to(a).emit("proximity:connect", {
     peerId: b,
     roomId: room,
     displayName: pb?.displayName ?? "Traveler",
+    history,
   });
   io.to(b).emit("proximity:connect", {
     peerId: a,
     roomId: room,
     displayName: pa?.displayName ?? "Traveler",
+    history,
   });
 }
 

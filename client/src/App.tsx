@@ -19,6 +19,15 @@ type ProximityLink = {
   closing?: boolean;
 };
 
+type ProximityConnectPayload = ProximityLink & {
+  history?: Array<{
+    fromId: string;
+    fromName: string;
+    text: string;
+    ts: number;
+  }>;
+};
+
 function socketBaseUrl(): string | undefined {
   const env = import.meta.env.VITE_SERVER_URL;
   if (env) return env.replace(/\/$/, "");
@@ -128,18 +137,36 @@ export function App() {
       setJoined(false);
     };
 
-    const onProximityConnect = (payload: ProximityLink) => {
+    const onProximityConnect = (payload: ProximityConnectPayload) => {
       proximityEndHandledRef.current = false;
+      const history = payload.history ?? [];
+      const restored: ChatRow[] = history.map((h) => ({
+        kind: "user" as const,
+        fromId: h.fromId,
+        fromName: h.fromName,
+        text: h.text,
+        ts: h.ts,
+      }));
+      const connectText =
+        history.length > 0
+          ? `Connected to ${payload.displayName}. Earlier messages from this session are shown below.`
+          : `Connected to ${payload.displayName}.`;
       setChatMessages([
         {
           kind: "system",
           id: `connect-${Date.now()}`,
           variant: "connect",
-          text: `Connected to ${payload.displayName}.`,
+          text: connectText,
           ts: Date.now(),
         },
+        ...restored,
       ]);
-      setProximityLink({ ...payload, closing: false });
+      setProximityLink({
+        peerId: payload.peerId,
+        roomId: payload.roomId,
+        displayName: payload.displayName,
+        closing: false,
+      });
     };
 
     const onProximityDisconnect = (payload: { peerId: string }) => {

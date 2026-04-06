@@ -9,6 +9,7 @@ A 2D multiplayer “cosmos” where travelers appear on a shared plane, move in 
 - **Chat:** When linked, both sockets join the same Socket.IO room; the chat panel opens. Moving apart or a better mutual nearest match tears the room down and hides chat.
 - **Canvas UX:** Avatars are **blue (you)** / **green (others)** circles with a **center initial**, **full name above**, **orange outline** on the linked peer, your **proximity radius** ring, connector **line**, and smoothed motion for **other** players (you stay server-snapped).
 - **Chat UX:** System lines for connect / disconnect / peer left, timestamps and initials on user bubbles, input auto-focus on link, and a short “closing” state before the panel dismisses.
+- **Chat memory (session):** The server keeps an in-memory transcript per **pair room** until the Node process exits. When the same two sockets link again (e.g. walk apart and return in the same tabs), `proximity:connect` includes `history` so the thread continues. Refreshing the page gives new socket IDs, so that pair’s key changes and history starts fresh for those connections.
 
 Shared tuning lives in `shared/src/index.ts` (world size, radius, speed, tick interval).
 
