@@ -53,10 +53,13 @@ Copy `.env.example` to `.env` in the repo root if you run tooling that reads it;
 
 Recommended split:
 
-1. **Frontend — Vercel or Netlify**  
-   - Connect this repository.  
-   - Use root **`vercel.json`** (included) so the install runs at the monorepo root and the client build outputs `client/dist`.  
-   - Add build env: `VITE_SERVER_URL=https://<your-api-host>` (your Render/Railway URL, **no** trailing slash).
+1. **Frontend — Vercel**  
+   - Connect this repository (full monorepo, not a `client`-only fork).  
+   - **Root Directory** (Project → Settings → General):  
+     - **Recommended:** leave **empty** (repository root). The root **`vercel.json`** runs `npm install` at the repo root and `npm run build -w client`.  
+     - **If you set Root Directory to `client`:** use **`client/vercel.json`** (install/build run from the parent folder so workspaces and `@virtual-cosmos/shared` resolve). Do **not** set the build command to `npm run build -w client` in the dashboard when Root Directory is `client` — that fails because there is no `client` workspace from inside `client/`.  
+   - **Environment variable:** `VITE_SERVER_URL=https://<your-api-host>` (Render URL, **no** trailing slash). Redeploy after changing it.  
+   - Node **20** is declared via **`.nvmrc`** at the repo root; Vercel will pick it up.
 
 2. **Backend — Render or Railway**  
    - **Root directory:** repository root.  
