@@ -1,6 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import { DISPLAY_NAME_MAX_LENGTH } from "@virtual-cosmos/shared";
+import {
+  clampToWorld,
+  DISPLAY_NAME_MAX_LENGTH,
+  MAX_DELTA_PER_TICK,
+  POSITION_TICK_MS,
+} from "@virtual-cosmos/shared";
 import { CosmicCanvas } from "./components/CosmicCanvas";
 import type { Player } from "./types";
 
@@ -17,6 +22,13 @@ export function App() {
   const [joined, setJoined] = useState(false);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [players, setPlayers] = useState<Map<string, Player>>(new Map());
+
+  const playersRef = useRef(players);
+  const selfIdRef = useRef(selfId);
+  const keysRef = useRef<Set<string>>(new Set());
+
+  playersRef.current = players;
+  selfIdRef.current = selfId;
 
   const socket = useMemo<Socket | null>(() => {
     if (!joined) return null;
@@ -48,6 +60,17 @@ export function App() {
       });
     };
 
+    const onMoved = (payload: { id: string; x: number; y: number }) => {
+      setPlayers((prev) => {
+        const next = new Map(prev);
+        const cur = next.get(payload.id);
+        if (cur) {
+          next.set(payload.id, { ...cur, x: payload.x, y: payload.y });
+        }
+        return next;
+      });
+    };
+
     const onJoinErr = (payload: { message?: string }) => {
       setError(payload.message ?? "Could not join.");
       setJoined(false);
@@ -56,6 +79,7 @@ export function App() {
     socket.on("world:state", onState);
     socket.on("player:joined", onJoined);
     socket.on("player:left", onLeft);
+    socket.on("player:moved", onMoved);
     socket.on("player:join_error", onJoinErr);
     socket.connect();
     socket.emit("player:join", { displayName: name.trim() });
@@ -64,10 +88,68 @@ export function App() {
       socket.off("world:state", onState);
       socket.off("player:joined", onJoined);
       socket.off("player:left", onLeft);
+      socket.off("player:moved", onMoved);
       socket.off("player:join_error", onJoinErr);
       socket.disconnect();
     };
   }, [socket, name]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const down = (e: KeyboardEvent) => {
+      keysRef.current.add(e.key.toLowerCase());
+    };
+    const up = (e: KeyboardEvent) => {
+      keysRef.current.delete(e.key.toLowerCase());
+    };
+
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+
+    const tick = () => {
+      const sid = selfIdRef.current;
+      if (!sid || !socket.connected) return;
+      const map = playersRef.current;
+      const self = map.get(sid);
+      if (!self) return;
+
+      const k = keysRef.current;
+      let ix = 0;
+      let iy = 0;
+      if (k.has("w") || k.has("arrowup")) iy -= 1;
+      if (k.has("s") || k.has("arrowdown")) iy += 1;
+      if (k.has("a") || k.has("arrowleft")) ix -= 1;
+      if (k.has("d") || k.has("arrowright")) ix += 1;
+
+      const len = Math.hypot(ix, iy);
+      if (len < 1e-6) return;
+
+      ix /= len;
+      iy /= len;
+
+      const nx = self.x + ix * MAX_DELTA_PER_TICK;
+      const ny = self.y + iy * MAX_DELTA_PER_TICK;
+      const c = clampToWorld(nx, ny);
+      socket.emit("player:move", c);
+    };
+
+    let intervalId: number | undefined;
+    const startTick = () => {
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+      intervalId = window.setInterval(tick, POSITION_TICK_MS);
+    };
+
+    socket.on("connect", startTick);
+    if (socket.connected) startTick();
+
+    return () => {
+      socket.off("connect", startTick);
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      if (intervalId !== undefined) window.clearInterval(intervalId);
+    };
+  }, [socket]);
 
   const enter = useCallback(() => {
     const t = name.trim();
@@ -119,11 +201,11 @@ export function App() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-white/10 px-4 py-3">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-4 border-b border-white/10 px-4 py-3">
         <div>
           <h1 className="font-display text-lg font-semibold text-white">Virtual Cosmos</h1>
           <p className="text-xs text-cosmos-dim">
-            {players.size} traveler{players.size === 1 ? "" : "s"} online
+            {players.size} traveler{players.size === 1 ? "" : "s"} online · WASD / arrows to move
           </p>
         </div>
         <div className="text-right text-xs text-slate-400">

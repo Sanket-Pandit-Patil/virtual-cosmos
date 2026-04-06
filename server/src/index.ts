@@ -6,7 +6,9 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import {
+  clampToWorld,
   DISPLAY_NAME_MAX_LENGTH,
+  MAX_DELTA_PER_TICK,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "@virtual-cosmos/shared";
@@ -47,6 +49,26 @@ function sanitizeName(raw: unknown): string | null {
   return t.length > 0 ? t : null;
 }
 
+function applyMovement(
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number
+): { x: number; y: number } {
+  const clamped = clampToWorld(toX, toY);
+  let nx = clamped.x;
+  let ny = clamped.y;
+  const dx = nx - fromX;
+  const dy = ny - fromY;
+  const len = Math.hypot(dx, dy);
+  if (len > MAX_DELTA_PER_TICK && len > 0) {
+    const s = MAX_DELTA_PER_TICK / len;
+    nx = fromX + dx * s;
+    ny = fromY + dy * s;
+  }
+  return clampToWorld(nx, ny);
+}
+
 io.on("connection", (socket) => {
   socket.on("player:join", (payload: { displayName?: string }) => {
     if (players.has(socket.id)) return;
@@ -64,6 +86,17 @@ io.on("connection", (socket) => {
       selfId: id,
       players: Array.from(players.values()),
     });
+  });
+
+  socket.on("player:move", (payload: { x?: unknown; y?: unknown }) => {
+    const p = players.get(socket.id);
+    if (!p) return;
+    if (typeof payload?.x !== "number" || typeof payload?.y !== "number") return;
+    if (!Number.isFinite(payload.x) || !Number.isFinite(payload.y)) return;
+    const next = applyMovement(p.x, p.y, payload.x, payload.y);
+    p.x = next.x;
+    p.y = next.y;
+    io.emit("player:moved", { id: socket.id, x: p.x, y: p.y });
   });
 
   socket.on("disconnect", () => {
