@@ -20,6 +20,8 @@ export const MAX_DELTA_PER_TICK =
 
 export const DISPLAY_NAME_MAX_LENGTH = 24;
 
+export const CHAT_MESSAGE_MAX_LENGTH = 500;
+
 export function clampToWorld(x: number, y: number): { x: number; y: number } {
   const minX = PLAYER_RADIUS;
   const maxX = WORLD_WIDTH - PLAYER_RADIUS;

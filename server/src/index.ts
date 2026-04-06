@@ -12,6 +12,7 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "@virtual-cosmos/shared";
+import { syncProximityPairs } from "./proximity.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 3001;
@@ -34,6 +35,7 @@ type PublicPlayer = {
 };
 
 const players = new Map<string, PublicPlayer>();
+const activeProximityPairs = new Set<string>();
 
 function randomSpawn(): { x: number; y: number } {
   const margin = 80;
@@ -86,6 +88,7 @@ io.on("connection", (socket) => {
       selfId: id,
       players: Array.from(players.values()),
     });
+    syncProximityPairs(io, players, activeProximityPairs);
   });
 
   socket.on("player:move", (payload: { x?: unknown; y?: unknown }) => {
@@ -97,12 +100,14 @@ io.on("connection", (socket) => {
     p.x = next.x;
     p.y = next.y;
     io.emit("player:moved", { id: socket.id, x: p.x, y: p.y });
+    syncProximityPairs(io, players, activeProximityPairs);
   });
 
   socket.on("disconnect", () => {
     if (!players.has(socket.id)) return;
     players.delete(socket.id);
     io.emit("player:left", { id: socket.id });
+    syncProximityPairs(io, players, activeProximityPairs);
   });
 });
 

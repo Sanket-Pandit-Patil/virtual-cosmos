@@ -9,6 +9,12 @@ import {
 import { CosmicCanvas } from "./components/CosmicCanvas";
 import type { Player } from "./types";
 
+type ProximityLink = {
+  peerId: string;
+  roomId: string;
+  displayName: string;
+};
+
 function socketBaseUrl(): string | undefined {
   const env = import.meta.env.VITE_SERVER_URL;
   if (env) return env.replace(/\/$/, "");
@@ -22,6 +28,7 @@ export function App() {
   const [joined, setJoined] = useState(false);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [players, setPlayers] = useState<Map<string, Player>>(new Map());
+  const [proximityLink, setProximityLink] = useState<ProximityLink | null>(null);
 
   const playersRef = useRef(players);
   const selfIdRef = useRef(selfId);
@@ -53,6 +60,7 @@ export function App() {
     };
 
     const onLeft = (payload: { id: string }) => {
+      setProximityLink((cur) => (cur?.peerId === payload.id ? null : cur));
       setPlayers((prev) => {
         const next = new Map(prev);
         next.delete(payload.id);
@@ -76,11 +84,21 @@ export function App() {
       setJoined(false);
     };
 
+    const onProximityConnect = (payload: ProximityLink) => {
+      setProximityLink(payload);
+    };
+
+    const onProximityDisconnect = (payload: { peerId: string }) => {
+      setProximityLink((cur) => (cur?.peerId === payload.peerId ? null : cur));
+    };
+
     socket.on("world:state", onState);
     socket.on("player:joined", onJoined);
     socket.on("player:left", onLeft);
     socket.on("player:moved", onMoved);
     socket.on("player:join_error", onJoinErr);
+    socket.on("proximity:connect", onProximityConnect);
+    socket.on("proximity:disconnect", onProximityDisconnect);
     socket.connect();
     socket.emit("player:join", { displayName: name.trim() });
 
@@ -90,6 +108,9 @@ export function App() {
       socket.off("player:left", onLeft);
       socket.off("player:moved", onMoved);
       socket.off("player:join_error", onJoinErr);
+      socket.off("proximity:connect", onProximityConnect);
+      socket.off("proximity:disconnect", onProximityDisconnect);
+      setProximityLink(null);
       socket.disconnect();
     };
   }, [socket, name]);
@@ -208,8 +229,17 @@ export function App() {
             {players.size} traveler{players.size === 1 ? "" : "s"} online · WASD / arrows to move
           </p>
         </div>
-        <div className="text-right text-xs text-slate-400">
-          You: <span className="text-teal-300">{name.trim()}</span>
+        <div className="flex flex-col items-end gap-1 text-right text-xs">
+          <p className="text-slate-400">
+            You: <span className="text-teal-300">{name.trim()}</span>
+          </p>
+          {proximityLink ? (
+            <p className="rounded-md border border-teal-500/40 bg-teal-500/10 px-2 py-1 text-teal-200">
+              Linked: <span className="font-medium">{proximityLink.displayName}</span>
+            </p>
+          ) : (
+            <p className="text-slate-500">No proximity link</p>
+          )}
         </div>
       </header>
       <main className="min-h-0 flex-1 p-4">
