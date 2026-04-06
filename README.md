@@ -70,6 +70,17 @@ Build the client, then serve `client/dist` from Express (already supported when 
 | `npm run build` | Production build of client and server |
 | `npm start` | Run compiled server (`server/dist`) |
 
+## Before you submit (checklist)
+
+1. **Repository:** Public GitHub repo with this README and clean history (optional: pin a release tag).
+2. **Live demo (recommended):** Deploy client + API (see **Deployment**), then add both URLs at the top of the repo description or here:
+   - Frontend: `https://…`
+   - API: `https://…` (Socket.IO on same host)
+3. **Demo video (2–5 minutes):** Show two browsers or two users — movement (WASD / click-to-move), real-time sync, moving together until **Linked** appears, sending chat, then moving apart until chat closes.
+4. **Assignment form:** Submit the repo link + video as required by your course (e.g. [submission form](https://forms.gle/GtkmYbjw4FVkrCzB8) if that is still the official link).
+
+**Note:** MongoDB was intentionally omitted for V1; all session state is in-memory on the server (document this if your rubric asks for persistence tradeoffs).
+
 ## License
 
-MIT (or replace with your preference for the assignment).
+MIT — see [LICENSE](./LICENSE).
