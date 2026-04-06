@@ -7,7 +7,7 @@ A 2D multiplayer “cosmos” where travelers appear on a shared plane, move in 
 - **Movement:** WASD or arrow keys; the client sends absolute `(x, y)` on a fixed tick; the server clamps to the world and caps per-tick travel distance.
 - **Proximity:** Each player’s nearest neighbor within `PROXIMITY_RADIUS` is computed on the server. A **link** exists only when both players are each other’s nearest in-range neighbor (stable pairwise symmetry).
 - **Chat:** When linked, both sockets join the same Socket.IO room; the chat panel opens. Moving apart or a better mutual nearest match tears the room down and hides chat.
-- **Canvas UX:** Name labels above avatars, your **proximity radius** ring, a **line** plus **gold ring** on the linked peer, and smoothed motion for **other** players (you stay server-snapped).
+- **Canvas UX:** Avatars are **blue (you)** / **green (others)** circles with a **center initial**, **full name above**, **orange outline** on the linked peer, your **proximity radius** ring, connector **line**, and smoothed motion for **other** players (you stay server-snapped).
 - **Chat UX:** System lines for connect / disconnect / peer left, timestamps and initials on user bubbles, input auto-focus on link, and a short “closing” state before the panel dismisses.
 
 Shared tuning lives in `shared/src/index.ts` (world size, radius, speed, tick interval).

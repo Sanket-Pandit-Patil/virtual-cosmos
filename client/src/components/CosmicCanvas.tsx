@@ -23,7 +23,19 @@ type Props = {
 };
 
 const LERP = 0.2;
-const NAME_STYLE = {
+
+/** Self avatar: blue */
+const SELF_FILL = 0x3b82f6;
+const SELF_STROKE = 0x93c5fd;
+
+/** Other players: green */
+const OTHER_FILL = 0x22c55e;
+const OTHER_STROKE = 0x86efac;
+
+/** Linked peer outer ring: orange / amber */
+const LINK_OUTLINE = 0xf97316;
+
+const NAME_LABEL_STYLE = {
   fontFamily: "DM Sans, Outfit, Segoe UI, system-ui, sans-serif",
   fontSize: 12,
   fontWeight: "600" as const,
@@ -36,6 +48,27 @@ const NAME_STYLE = {
     distance: 0,
   },
 };
+
+const INITIAL_STYLE = {
+  fontFamily: "Outfit, DM Sans, Segoe UI, system-ui, sans-serif",
+  fontSize: 15,
+  fontWeight: "700" as const,
+  fill: 0xffffff,
+  dropShadow: {
+    alpha: 0.55,
+    angle: Math.PI / 2,
+    blur: 2,
+    color: 0x000000,
+    distance: 0,
+  },
+};
+
+function firstLetter(displayName: string): string {
+  const t = displayName.trim();
+  if (!t) return "?";
+  const ch = t[0];
+  return ch.toUpperCase();
+}
 
 export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -128,7 +161,7 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
         const selfSmooth = smooth.get(sid);
         if (selfSmooth) {
           proximityGfx.circle(selfSmooth.x, selfSmooth.y, PROXIMITY_RADIUS);
-          proximityGfx.stroke({ width: 1.5, color: 0x5eead4, alpha: 0.22 });
+          proximityGfx.stroke({ width: 1.5, color: SELF_FILL, alpha: 0.28 });
         }
 
         if (lid) {
@@ -136,7 +169,7 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
           if (peerSmooth && selfSmooth) {
             linkLineGfx.moveTo(selfSmooth.x, selfSmooth.y);
             linkLineGfx.lineTo(peerSmooth.x, peerSmooth.y);
-            linkLineGfx.stroke({ width: 2, color: 0x5eead4, alpha: 0.35 });
+            linkLineGfx.stroke({ width: 2, color: LINK_OUTLINE, alpha: 0.45 });
           }
         }
       }
@@ -252,26 +285,34 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
         const body = new Graphics();
         body.eventMode = "none";
 
+        const initial = new Text({ text: "?", style: INITIAL_STYLE });
+        initial.anchor.set(0.5, 0.5);
+        initial.position.set(0, 0);
+        initial.eventMode = "none";
+
         const ring = new Graphics();
         ring.eventMode = "none";
 
-        const label = new Text({ text: p.displayName, style: NAME_STYLE });
-        label.anchor.set(0.5, 1);
-        label.position.set(0, -PLAYER_RADIUS - 7);
-        label.eventMode = "none";
+        const nameLabel = new Text({ text: p.displayName, style: NAME_LABEL_STYLE });
+        nameLabel.anchor.set(0.5, 1);
+        nameLabel.position.set(0, -PLAYER_RADIUS - 8);
+        nameLabel.eventMode = "none";
 
         root.addChild(body);
+        root.addChild(initial);
         root.addChild(ring);
-        root.addChild(label);
+        root.addChild(nameLabel);
         playersRoot.addChild(root);
         roots.set(id, root);
       }
 
       const body = root.getChildAt(0) as Graphics;
-      const ring = root.getChildAt(1) as Graphics;
-      const label = root.getChildAt(2) as Text;
+      const initial = root.getChildAt(1) as Text;
+      const ring = root.getChildAt(2) as Graphics;
+      const nameLabel = root.getChildAt(3) as Text;
 
-      label.text = p.displayName;
+      nameLabel.text = p.displayName;
+      initial.text = firstLetter(p.displayName);
       root.zIndex = id === selfId ? 2 : 1;
 
       const isSelf = id === selfId;
@@ -279,20 +320,18 @@ export function CosmicCanvas({ players, selfId, linkedPeerId, onWorldClick }: Pr
 
       body.clear();
       body.circle(0, 0, PLAYER_RADIUS);
-      body.fill({
-        color: isSelf ? 0x5eead4 : 0x64748b,
-        alpha: isSelf ? 0.95 : 0.88,
-      });
-      body.stroke({
-        width: isSelf ? 3 : 2,
-        color: isSelf ? 0xccfbf1 : 0x94a3b8,
-        alpha: 0.95,
-      });
+      if (isSelf) {
+        body.fill({ color: SELF_FILL, alpha: 0.96 });
+        body.stroke({ width: 2, color: SELF_STROKE, alpha: 0.95 });
+      } else {
+        body.fill({ color: OTHER_FILL, alpha: 0.94 });
+        body.stroke({ width: 2, color: OTHER_STROKE, alpha: 0.9 });
+      }
 
       ring.clear();
       if (isLinkedPeer) {
         ring.circle(0, 0, PLAYER_RADIUS + 5);
-        ring.stroke({ width: 2.5, color: 0xfbbf24, alpha: 0.95 });
+        ring.stroke({ width: 3, color: LINK_OUTLINE, alpha: 1 });
       }
     }
 
