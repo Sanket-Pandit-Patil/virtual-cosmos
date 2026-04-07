@@ -1,96 +1,150 @@
 # Virtual Cosmos
 
-A 2D multiplayer “cosmos” where travelers appear on a shared plane, move in real time, and can chat when they are **mutual nearest neighbors** within a proximity radius (assignment V1).
+**Real-time 2D multiplayer space** with **proximity-gated chat**: travelers move on a shared canvas; when two players are each other’s nearest neighbor inside a radius, they link, get a private chat room, and see shared UI—while everyone else still sees that link on the map.
 
-## Behavior (V1)
+<p align="center">
+  <a href="https://virtual-cosmos-client-khrk.vercel.app/"><strong>Live app →</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Sanket-Pandit-Patil/virtual-cosmos"><strong>Source</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://virtual-cosmos-nu9l.onrender.com/health"><strong>API health</strong></a>
+</p>
 
-- **Avatars:** One **procedural** icon for everyone (blue face, light silhouette, thin dark rim). **You** get a **cyan** outer trim on the disk; **other travelers** use a **neutral slate** trim so you can tell yourself apart at a glance.
-- **Movement:** WASD or arrow keys, or **click-to-move** on the canvas. The client sends absolute `(x, y)` on a fixed tick; the server clamps to the world and caps per-tick travel distance. Keyboard is ignored while typing in chat inputs.
-- **Proximity:** Each player’s nearest neighbor within `PROXIMITY_RADIUS` is computed on the server. A **link** exists only when both players are each other’s nearest in-range neighbor (stable pairwise symmetry).
-- **Chat:** When linked, both sockets join the same Socket.IO room and **only those two** see the **Proximity chat** panel. Moving apart or a better mutual nearest match tears the room down and hides chat.
-- **Proximity for everyone:** The server broadcasts **`proximity:pairs`** (and includes `proximityPairs` in **`world:state`**) so **all** clients see:
-  - **Connector lines** between each linked pair (orange).
-  - **Highlight rings** on **both** players in a pair: **green** on **your** avatar when you are linked, **orange** on linked peers (and on both players when you are a spectator).
-  - **Spectators** (not in a pair) do **not** get the chat panel, but see a small header badge such as `NameA ↔ NameB connected` for pairs they are not part of.
-- **Canvas UX:** Display name above each traveler; your **proximity radius** (faint ring) only on **you**; smoothed motion for **other** players (you stay server-snapped).
-- **Chat UX:** System lines for connect / disconnect / peer left, timestamps and initials on user bubbles, input auto-focus on link, and a short “closing” state before the panel dismisses.
-- **Chat memory (session):** The server keeps an in-memory transcript per **pair room** until the Node process exits. When the same two sockets link again (e.g. walk apart and return in the same tabs), `proximity:connect` includes `history` so the thread continues. Refreshing the page gives new socket IDs, so that pair’s key changes and history starts fresh for those connections.
+| | URL |
+|---|-----|
+| **Frontend** | [virtual-cosmos-client-khrk.vercel.app](https://virtual-cosmos-client-khrk.vercel.app/) |
+| **API (Socket.IO + REST)** | [virtual-cosmos-nu9l.onrender.com](https://virtual-cosmos-nu9l.onrender.com) |
+| **Health check** | [`GET /health`](https://virtual-cosmos-nu9l.onrender.com/health) → `{"ok":true}` |
 
-Shared tuning lives in `shared/src/index.ts` (world size, radius, speed, tick interval).
+> **Try it:** open the live app in **two browsers** (or one + incognito), enter names, move close until **Linked** appears, then chat. Add a **third** window to see spectator lines and badges **without** the chat panel.
 
-## Stack
+---
 
-- **Monorepo** (npm workspaces): `shared/`, `client/`, `server/`
-- **Client:** React (Vite), PixiJS, Tailwind CSS, Socket.IO client
-- **Server:** Node.js, Express, Socket.IO (in-memory player state; no MongoDB in V1)
+## Contents
+
+- [Highlights](#highlights)
+- [How it works](#how-it-works)
+- [Stack & structure](#stack--structure)
+- [Local development](#local-development)
+- [Environment variables](#environment-variables)
+- [Deployment](#deployment)
+- [Assignment checklist](#assignment-checklist)
+- [License](#license)
+
+---
+
+## Highlights
+
+- **Authoritative server** — World bounds, speed cap, and proximity logic run on Node; clients send intent, server validates.
+- **Mutual nearest-neighbor links** — A chat link exists only when *A*’s nearest in range is *B* and *B*’s nearest in range is *A* (symmetric, stable pairs).
+- **Fair spectator UX** — `proximity:pairs` + `world:state.proximityPairs` sync **all** active pairs: orange connector lines, rings on both avatars (**green** ring on *your* avatar when you’re linked, **orange** on others), header badges like `Name ↔ Name connected` for third parties—**chat UI only for the linked pair**.
+- **Session chat memory** — In-memory transcript per pair room; reconnecting the same two tabs can restore `history` on `proximity:connect` (new socket IDs after full page refresh start a new pairing key).
+- **Polished canvas** — PixiJS playfield, procedural avatars, name labels, proximity ring for self, smoothed remote positions.
+
+---
+
+## How it works
+
+1. **Join** — Socket emits `player:join` with display name; server assigns spawn and broadcasts state.
+2. **Move** — Client sends clamped positions on a timer; server enforces `MAX_DELTA_PER_TICK` and world limits.
+3. **Proximity** — Server recomputes desired pair set each tick; **set up** joins a Socket.IO room and emits `proximity:connect` to both; **tear down** emits `proximity:disconnect` and leaves the room.
+4. **Chat** — Messages go to the room only if the socket is a member (`chat:message` + `roomId`).
+5. **Broadcast pairs** — On any pair change, server emits `proximity:pairs` so every client updates lines and rings.
+
+Tuning constants (`WORLD_*`, `PLAYER_RADIUS`, `PROXIMITY_RADIUS`, `MAX_SPEED`, tick ms) live in [`shared/src/index.ts`](./shared/src/index.ts).
+
+---
+
+## Stack & structure
+
+| Layer | Choices |
+|--------|---------|
+| **Monorepo** | npm workspaces: `shared`, `client`, `server` |
+| **Client** | React 18, Vite 6, TypeScript, Tailwind, **PixiJS 8**, Socket.IO client |
+| **Server** | Node 20+, Express, **Socket.IO**, CORS from env |
+| **Shared** | TypeScript constants + `clampToWorld` consumed by both tiers |
+
+```
+virtual-cosmos/
+├── client/          # Vite + React + Pixi canvas
+├── server/          # Express + Socket.IO (compiles to server/dist)
+├── shared/          # @virtual-cosmos/shared
+├── vercel.json      # Deploy root = repo (npm run build -w client)
+├── client/vercel.json   # Deploy root = client/ (cd .. && …)
+└── .nvmrc           # Node 20 for Vercel
+```
+
+**Persistence (V1):** Deliberately **no database**—players and chat history are **in-memory** for simplicity and fast iteration; document this tradeoff for rubrics that ask about durability.
+
+---
 
 ## Local development
 
-Requirements: **Node.js 20+**
+**Requirements:** Node.js **20+**
 
 ```bash
+git clone https://github.com/Sanket-Pandit-Patil/virtual-cosmos.git
+cd virtual-cosmos
 npm install
 npm run dev
 ```
 
-- Client: http://localhost:5173 (proxies `/socket.io` to the server)
-- Server: http://localhost:3001 (`GET /health`)
+| Service | URL |
+|---------|-----|
+| Client | [http://localhost:5173](http://localhost:5173) — proxies `/socket.io` → server |
+| Server | [http://localhost:3001](http://localhost:3001) — [`/health`](http://localhost:3001/health) |
 
-Open two browser windows (or one plus a private window) to test movement, proximity, and chat. Use a third window to confirm spectator lines, rings, and header badges without seeing the chat panel.
+Use **two** windows for movement + chat; a **third** for spectator behavior.
+
+---
 
 ## Environment variables
 
-Copy `.env.example` to `.env` in the repo root if you run tooling that reads it; Vite reads `VITE_*` from `client/` or the shell.
-
 | Variable | Where | Purpose |
 |----------|--------|---------|
-| `VITE_SERVER_URL` | Client **build** | Socket/API origin in production (no trailing slash). Omit in local dev to use the Vite proxy. |
-| `PORT` | Server | Listen port (default `3001`) |
-| `HOST` | Server | Bind address (default `0.0.0.0` for PaaS) |
-| `CLIENT_ORIGIN` | Server | CORS: `true`, `false`, a single origin string, or comma-separated origins for your deployed frontend |
+| `VITE_SERVER_URL` | **Vercel** (build) | Production API origin, e.g. `https://virtual-cosmos-nu9l.onrender.com` — **no trailing slash**, spelling must be exact (`URL` not `UR`). |
+| `CLIENT_ORIGIN` | **Render** | CORS + Socket.IO: your Vercel origin, e.g. `https://virtual-cosmos-client-khrk.vercel.app` |
+| `PORT` / `HOST` | Server | `PORT` usually set by the host; `HOST` defaults to `0.0.0.0` |
 
-## Deployment (single demo URL per tier)
+Copy [`.env.example`](./.env.example) for local reference.
 
-Recommended split:
+---
 
-1. **Frontend — Vercel**  
-   - Connect this repository (full monorepo, not a `client`-only fork).  
-   - **Root Directory** (Project → Settings → General):  
-     - **Recommended:** leave **empty** (repository root). The root **`vercel.json`** runs `npm install` at the repo root and `npm run build -w client`.  
-     - **If you set Root Directory to `client`:** use **`client/vercel.json`** (install/build run from the parent folder so workspaces and `@virtual-cosmos/shared` resolve). Do **not** set the build command to `npm run build -w client` in the dashboard when Root Directory is `client` — that fails because there is no `client` workspace from inside `client/`.  
-   - **Environment variable:** `VITE_SERVER_URL=https://<your-api-host>` (Render URL, **no** trailing slash). Redeploy after changing it.  
-   - Node **20** is declared via **`.nvmrc`** at the repo root; Vercel will pick it up.
+## Deployment
 
-2. **Backend — Render or Railway**  
-   - **Root directory:** repository root.  
-   - **Build command:** `npm install && npm run build -w server`  
-   - **Start command:** `npm run start -w server`  
-   - **Env:** `PORT` is usually injected by the platform; set `CLIENT_ORIGIN` to your frontend origin (e.g. `https://your-app.vercel.app`).
+Production layout used for the **live demo** above:
 
-After deploy, confirm `GET https://<api>/health` returns JSON and that the browser can open a WebSocket to the same host (Render/Railway expose HTTPS; Socket.IO will upgrade correctly).
+| Tier | Platform | Notes |
+|------|-----------|--------|
+| **Frontend** | [Vercel](https://vercel.com) | Monorepo: leave **Root Directory** empty **or** set to `client` and rely on [`client/vercel.json`](./client/vercel.json). Set **`VITE_SERVER_URL`** to the Render URL. |
+| **Backend** | [Render](https://render.com) | Root: repo root. Build: `npm install && npm run build -w server`. Start: `npm run start -w server`. |
 
-### All-in-one on Render (optional)
+**Render free tier:** first request after idle may take ~30–60s while the service wakes.
 
-Build the client, then serve `client/dist` from Express (already supported when `client/dist` exists on disk). One service can host both, at the cost of coupling deploys.
+**Health checks:** `/health` and `/health/` both return JSON (see [`server/src/index.ts`](./server/src/index.ts)).
+
+**Optional:** Run `npm run build` (client + server) on one host and let Express serve `client/dist` when present—single deploy, coupled releases.
+
+---
 
 ## Scripts
 
-| Script | Description |
-|--------|-------------|
-| `npm run dev` | Concurrent client (Vite) + server (tsx watch) |
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Client + server in watch mode |
 | `npm run build` | Production build of client and server |
 | `npm start` | Run compiled server (`server/dist`) |
 
-## Before you submit (checklist)
+---
 
-1. **Repository:** Public GitHub repo with this README and clean history (optional: pin a release tag).
-2. **Live demo (recommended):** Deploy client + API (see **Deployment**), then add both URLs at the top of the repo description or here:
-   - Frontend: `https://…`
-   - API: `https://…` (Socket.IO on same host)
-3. **Demo video (2–5 minutes):** Show two browsers or two users — movement (WASD / click-to-move), real-time sync, moving together until **Linked** appears, sending chat, then moving apart until chat closes. Optionally show a third client seeing the link on the canvas without chat.
-4. **Assignment form:** Submit the repo link + video as required by your course (e.g. [submission form](https://forms.gle/GtkmYbjw4FVkrCzB8) if that is still the official link).
+## Assignment checklist
 
-**Note:** MongoDB was intentionally omitted for V1; all session state is in-memory on the server (document this if your rubric asks for persistence tradeoffs).
+1. **Repo** — Public: [github.com/Sanket-Pandit-Patil/virtual-cosmos](https://github.com/Sanket-Pandit-Patil/virtual-cosmos)
+2. **Live demo** — [virtual-cosmos-client-khrk.vercel.app](https://virtual-cosmos-client-khrk.vercel.app/) + API [virtual-cosmos-nu9l.onrender.com](https://virtual-cosmos-nu9l.onrender.com)
+3. **Video (2–5 min)** — Two users: move, link, chat, unlink; optional third client as spectator.
+4. **Course form** — Submit repo + video per instructions (e.g. [submission form](https://forms.gle/GtkmYbjw4FVkrCzB8) if still current).
+
+---
 
 ## License
 
