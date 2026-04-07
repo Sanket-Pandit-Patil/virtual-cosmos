@@ -1,6 +1,6 @@
 {
   "installCommand": "cd .. && npm install",
-  "buildCommand": "cd .. && npm run build -w client",
+  "buildCommand": "cd .. && npm run build -w shared && npm run build -w client",
   "outputDirectory": "dist",
   "framework": null
 }

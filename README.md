@@ -69,7 +69,7 @@ virtual-cosmos/
 ├── client/          # Vite + React + Pixi canvas
 ├── server/          # Express + Socket.IO (compiles to server/dist)
 ├── shared/          # @virtual-cosmos/shared
-├── vercel.json      # Deploy root = repo (npm run build -w client)
+├── vercel.json      # Deploy root = repo (shared + client build)
 ├── client/vercel.json   # Deploy root = client/ (cd .. && …)
 └── .nvmrc           # Node 20 for Vercel
 ```
@@ -117,7 +117,7 @@ Production layout used for the **live demo** above:
 | Tier | Platform | Notes |
 |------|-----------|--------|
 | **Frontend** | [Vercel](https://vercel.com) | Monorepo: leave **Root Directory** empty **or** set to `client` and rely on [`client/vercel.json`](./client/vercel.json). Set **`VITE_SERVER_URL`** to the Render URL. |
-| **Backend** | [Render](https://render.com) | Root: repo root. Build: `npm install && npm run build -w server`. Start: `npm run start -w server`. |
+| **Backend** | [Render](https://render.com) | Root: repo root. Build: `npm install && npm run build -w shared && npm run build -w server` (shared must compile to JS before the server). Start: `npm run start -w server`. |
 
 **Render free tier:** first request after idle may take ~30–60s while the service wakes.
 
@@ -132,7 +132,7 @@ Production layout used for the **live demo** above:
 | Command | Description |
 |---------|-------------|
 | `npm run dev` | Client + server in watch mode |
-| `npm run build` | Production build of client and server |
+| `npm run build` | Production build of shared, client, and server |
 | `npm start` | Run compiled server (`server/dist`) |
 
 ---
