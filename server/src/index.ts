@@ -38,6 +38,24 @@ app.get(["/health", "/health/"], (_req, res) => {
   res.json({ ok: true });
 });
 
+const clientDist = path.join(__dirname, "../../client/dist");
+const hasClientDist = fs.existsSync(clientDist);
+
+/** API-only deploys (e.g. Render without bundled client): friendly root. Skip when serving `client/dist` so `/` stays the SPA. */
+if (!hasClientDist) {
+  app.get("/", (_req, res) => {
+    res.json({
+      service: "Virtual Cosmos API",
+      status: "running",
+      message: "Virtual Cosmos API is running 🚀",
+      endpoints: {
+        health: "/health",
+        socketIO: "/socket.io",
+      },
+    });
+  });
+}
+
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: { origin: CLIENT_ORIGIN, methods: ["GET", "POST"] },
@@ -151,8 +169,7 @@ io.on("connection", (socket) => {
   });
 });
 
-const clientDist = path.join(__dirname, "../../client/dist");
-if (fs.existsSync(clientDist)) {
+if (hasClientDist) {
   app.use(express.static(clientDist));
   app.get("*", (_req, res) => {
     res.sendFile(path.join(clientDist, "index.html"));
